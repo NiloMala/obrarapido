@@ -160,9 +160,9 @@ export default function DashboardProfessional() {
   }
   // Função robusta para formatar moeda BRL
   function formatInputToBRL(value: string) {
-    let digits = value.replace(/\D/g, '');
+    const digits = value.replace(/\D/g, '');
     if (!digits) return '';
-    let number = parseInt(digits, 10);
+    const number = parseInt(digits, 10);
     return (number / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
@@ -759,7 +759,7 @@ export default function DashboardProfessional() {
                       </div>
                       {service.review[0].comment && (
                         <div style={{ fontSize: 13, color: '#555' }}>
-                          "{service.review[0].comment}"
+                          &quot;{service.review[0].comment}&quot;
                         </div>
                       )}
                     </div>

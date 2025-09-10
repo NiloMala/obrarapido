@@ -757,7 +757,7 @@ export default function DashboardClient() {
                       </div>
                       {service.review[0].comment && (
                         <div style={{ fontSize: 13, color: '#555' }}>
-                          "{service.review[0].comment}"
+                          &quot;{service.review[0].comment}&quot;
                         </div>
                       )}
                     </div>
