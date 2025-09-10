@@ -686,20 +686,6 @@ export default function DashboardProfessional() {
               }}
             >Oportunidades</button>
             <button
-              onClick={() => setActiveTab('plano')}
-              style={{
-                background: activeTab === 'plano' ? '#1976d2' : '#fff',
-                color: activeTab === 'plano' ? '#fff' : '#1976d2',
-                border: '1px solid #1976d2',
-                borderRadius: 8,
-                padding: '8px 18px',
-                fontWeight: 700,
-                fontSize: 14,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-              }}
-            >Plano</button>
-            <button
               onClick={openCompletedServices}
               style={{
                 background: '#fff',
@@ -713,6 +699,20 @@ export default function DashboardProfessional() {
                 transition: 'all 0.2s',
               }}
             >Serviços Concluídos</button>
+            <button
+              onClick={() => setActiveTab('plano')}
+              style={{
+                background: activeTab === 'plano' ? '#1976d2' : '#fff',
+                color: activeTab === 'plano' ? '#fff' : '#1976d2',
+                border: '1px solid #1976d2',
+                borderRadius: 8,
+                padding: '8px 18px',
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >Planos</button>
             <button
               onClick={openEditProfile}
               style={{
@@ -873,7 +873,7 @@ export default function DashboardProfessional() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div>
               <h2 style={{ fontWeight: 700, fontSize: 20, color: '#1976d2', margin: 0, padding: 0 }}>
-                Dashboard Profissional
+                Painel do Profissional
               </h2>
               <span style={{ color: '#555', fontSize: 15, fontWeight: 400, marginTop: 2, display: 'block' }}>Gerencie suas oportunidades e serviços</span>
             </div>
@@ -1132,6 +1132,17 @@ export default function DashboardProfessional() {
                             <div style={{ color: '#555', fontSize: 15, marginBottom: 6 }}>{detailsRequest.description}</div>
                             <div style={{ color: '#555', fontSize: 15, marginBottom: 6 }}>Categoria: {detailsRequest.category}</div>
                             <div style={{ color: '#555', fontSize: 15, marginBottom: 6 }}>Criado em: {new Date(detailsRequest.created_at).toLocaleString('pt-BR')}</div>
+                            {/* Foto anexada pelo cliente */}
+                            {Array.isArray(detailsRequest.photos) && detailsRequest.photos.length > 0 && detailsRequest.photos[0] && (
+                              <div style={{ margin: '12px 0' }}>
+                                <div style={{ color: '#1976d2', fontWeight: 500, marginBottom: 4 }}>Foto do serviço anexada pelo cliente:</div>
+                                <img
+                                  src={detailsRequest.photos[0]}
+                                  alt="Foto do serviço"
+                                  style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 10, border: '1px solid #90caf9', boxShadow: '0 2px 8px 0 rgba(25,118,210,0.10)' }}
+                                />
+                              </div>
+                            )}
                             {detailsRequest.budget && (
                               <div style={{ color: '#1976d2', fontWeight: 600, fontSize: 16, marginBottom: 6 }}>
                                 Orçamento do Cliente: R$ {Number(detailsRequest.budget).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}

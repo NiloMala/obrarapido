@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FiMapPin, FiClock, FiUsers, FiUser, FiMessageSquare, FiFileText, FiCheckCircle, FiStar } from "react-icons/fi";
+import { FiMapPin, FiClock, FiUsers, FiUser, FiMessageSquare, FiFileText, FiCheckCircle, FiStar, FiTrash2 } from "react-icons/fi";
 import { supabase } from "../lib/supabaseClient";
 import styles from "./page.module.css";
 import Chat from "./components/Chat";
@@ -20,20 +20,30 @@ function Modal({ open, onClose, children }: { open: boolean, onClose: () => void
   );
 }
 
-function ServiceRequestModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ServiceRequestModal({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess?: () => void }) {
   const [form, setForm] = useState({
     category: "",
     title: "",
     description: "",
     address: "",
-    photo: "",
+    photo: "", // URL da foto após upload
   });
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  // Upload de foto do serviço
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    setPhotoFile(file);
+    // Mostra nome do arquivo no campo (opcional)
+    setForm((prev) => ({ ...prev, photo: file.name }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -48,13 +58,27 @@ function ServiceRequestModal({ open, onClose }: { open: boolean; onClose: () => 
         setLoading(false);
         return;
       }
+      let photoUrl = "";
+      if (photoFile) {
+        // Upload para bucket 'service-photos' (crie no Supabase se não existir)
+        const ext = photoFile.name.split('.').pop();
+        const filePath = `service_${user.id}_${Date.now()}.${ext}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage.from('service-photos').upload(filePath, photoFile, { upsert: true });
+        if (uploadError) {
+          setError("Erro ao fazer upload da foto: " + uploadError.message);
+          setLoading(false);
+          return;
+        }
+        const { data: urlData } = supabase.storage.from('service-photos').getPublicUrl(filePath);
+        photoUrl = urlData?.publicUrl || "";
+      }
       const { error: reqError } = await supabase.from("service_requests").insert({
         client_id: user.id,
         category: form.category,
         title: form.title,
         description: form.description,
         address: form.address,
-        photos: form.photo ? [form.photo] : [],
+        photos: photoUrl ? [photoUrl] : [],
         status: "open"
       });
       if (reqError) {
@@ -66,6 +90,9 @@ function ServiceRequestModal({ open, onClose }: { open: boolean; onClose: () => 
       setTimeout(() => {
         setSuccess("");
         onClose();
+        if (onSuccess) {
+          onSuccess();
+        }
       }, 1500);
     } catch (err) {
       setError("Erro inesperado ao enviar pedido.");
@@ -90,7 +117,16 @@ function ServiceRequestModal({ open, onClose }: { open: boolean; onClose: () => 
         <input name="title" type="text" placeholder="Título do serviço" required style={{ padding: 12, borderRadius: 8, border: '1px solid #90caf9', fontSize: 16 }} value={form.title} onChange={handleChange} />
         <textarea name="description" placeholder="Descrição detalhada" required style={{ padding: 12, borderRadius: 8, border: '1px solid #90caf9', fontSize: 16, minHeight: 60 }} value={form.description} onChange={handleChange} />
         <input name="address" type="text" placeholder="Endereço" required style={{ padding: 12, borderRadius: 8, border: '1px solid #90caf9', fontSize: 16 }} value={form.address} onChange={handleChange} />
-        <input name="photo" type="text" placeholder="URL da foto (opcional)" style={{ padding: 12, borderRadius: 8, border: '1px solid #90caf9', fontSize: 16 }} value={form.photo} onChange={handleChange} />
+        <label style={{ fontWeight: 500, color: '#1976d2' }}>Foto do serviço (opcional)</label>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={handlePhotoUpload}
+          style={{ padding: 12, borderRadius: 8, border: '1px solid #90caf9', fontSize: 16 }}
+        />
+        {photoFile && (
+          <span style={{ fontSize: 13, color: '#555', marginTop: 4 }}>Arquivo selecionado: {photoFile.name}</span>
+        )}
         <button type="submit" className={styles.primary} style={{ fontSize: 18, padding: '14px 0', borderRadius: 10, marginTop: 8 }} disabled={loading}>
           {loading ? "Enviando..." : "Enviar Pedido"}
         </button>
@@ -145,6 +181,57 @@ export default function DashboardClient() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const [reviewSuccess, setReviewSuccess] = useState('');
+
+  // Estados para exclusão de solicitação
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [requestToDelete, setRequestToDelete] = useState<any>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Função para abrir modal de confirmação de exclusão
+  const handleDeleteRequest = (request: any) => {
+    setRequestToDelete(request);
+    setShowDeleteConfirm(true);
+  };
+
+  // Função para confirmar exclusão da solicitação
+  const confirmDeleteRequest = async () => {
+    if (!requestToDelete) return;
+    
+    setDeleteLoading(true);
+    try {
+      // Primeiro, excluir todos os orçamentos relacionados à solicitação
+      const { error: quotesError } = await supabase
+        .from('quotes')
+        .delete()
+        .eq('service_request_id', requestToDelete.id);
+
+      if (quotesError) {
+        throw new Error('Erro ao excluir orçamentos: ' + quotesError.message);
+      }
+
+      // Depois, excluir a solicitação
+      const { error: requestError } = await supabase
+        .from('service_requests')
+        .delete()
+        .eq('id', requestToDelete.id);
+
+      if (requestError) {
+        throw new Error('Erro ao excluir solicitação: ' + requestError.message);
+      }
+
+      // Fechar modal e atualizar lista
+      setShowDeleteConfirm(false);
+      setRequestToDelete(null);
+      
+      // Recarregar dados
+      window.location.reload();
+      
+    } catch (err: any) {
+      alert(err.message || 'Erro inesperado ao excluir solicitação.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   // Função para aceitar orçamento e mudar status da solicitação
   const handleAcceptQuote = async (quote: any) => {
@@ -253,8 +340,8 @@ export default function DashboardClient() {
     return stars;
   };
 
-  useEffect(() => {
-  const fetchData = async () => {
+  // Função para carregar todos os dados
+  const loadData = async () => {
     setLoading(true);
     setError("");
     try {
@@ -359,8 +446,10 @@ export default function DashboardClient() {
     }
     setLoading(false);
   };
-  fetchData();
-}, []);
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   // Modal editar perfil
   const openEditProfile = () => {
@@ -606,13 +695,46 @@ export default function DashboardClient() {
                       <FiClock style={{ color: '#90caf9' }} /> {new Date(req.created_at).toLocaleDateString('pt-BR')}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
-                    <FiUsers style={{ color: '#1976d2' }} />
-                    {req.quotesCount || 0} orçamentos recebidos
-                    {req.status === 'contracted' && req.contracted_professional?.name && (
-                      <span style={{ marginLeft: 16, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <FiUser style={{ color: '#1976d2' }} /> {req.contracted_professional.name}
-                      </span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <FiUsers style={{ color: '#1976d2' }} />
+                      {req.quotesCount || 0} orçamentos recebidos
+                      {req.status === 'contracted' && req.contracted_professional?.name && (
+                        <span style={{ marginLeft: 16, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <FiUser style={{ color: '#1976d2' }} /> {req.contracted_professional.name}
+                        </span>
+                      )}
+                    </div>
+                    {/* Botão de exclusão - apenas para solicitações não contratadas */}
+                    {req.status !== 'contracted' && req.status !== 'completed' && (
+                      <button
+                        onClick={() => handleDeleteRequest(req)}
+                        style={{
+                          background: '#fff',
+                          color: '#f44336',
+                          border: '1px solid #f44336',
+                          borderRadius: 8,
+                          padding: '6px 12px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 14,
+                          fontWeight: 500,
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f44336';
+                          e.currentTarget.style.color = '#fff';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#fff';
+                          e.currentTarget.style.color = '#f44336';
+                        }}
+                        title="Excluir solicitação"
+                      >
+                        <FiTrash2 size={14} /> Excluir
+                      </button>
                     )}
                   </div>
                 </div>
@@ -687,7 +809,11 @@ export default function DashboardClient() {
             </div>
           )}
 
-          <ServiceRequestModal open={modalOpen} onClose={() => setModalOpen(false)} />
+          <ServiceRequestModal 
+            open={modalOpen} 
+            onClose={() => setModalOpen(false)}
+            onSuccess={() => loadData()}
+          />
         </>
         {/* Modal de edição de perfil sempre disponível, não depende da aba */}
         <Modal open={showEditProfile} onClose={closeEditProfile}>
@@ -870,6 +996,55 @@ export default function DashboardClient() {
             {reviewError && <div style={{ color: 'red', fontSize: 14 }}>{reviewError}</div>}
             {reviewSuccess && <div style={{ color: 'green', fontSize: 14 }}>{reviewSuccess}</div>}
           </form>
+        </Modal>
+
+        {/* Modal de confirmação de exclusão */}
+        <Modal open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
+          <div style={{ textAlign: 'center' }}>
+            <FiTrash2 size={48} color="#f44336" style={{ marginBottom: 16 }} />
+            <h3 style={{ color: '#333', fontWeight: 700, fontSize: 20, marginBottom: 12 }}>
+              Confirmar Exclusão
+            </h3>
+            <p style={{ color: '#666', fontSize: 16, marginBottom: 24, lineHeight: 1.5 }}>
+              Tem certeza que deseja excluir a solicitação <strong>&quot;{requestToDelete?.title}&quot;</strong>?
+              <br /><br />
+              Esta ação não pode ser desfeita e todos os orçamentos relacionados também serão excluídos.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleteLoading}
+                style={{
+                  background: '#fff',
+                  color: '#666',
+                  border: '1px solid #ddd',
+                  borderRadius: 8,
+                  padding: '10px 20px',
+                  fontWeight: 600,
+                  cursor: deleteLoading ? 'not-allowed' : 'pointer',
+                  opacity: deleteLoading ? 0.6 : 1
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDeleteRequest}
+                disabled={deleteLoading}
+                style={{
+                  background: '#f44336',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '10px 20px',
+                  fontWeight: 600,
+                  cursor: deleteLoading ? 'not-allowed' : 'pointer',
+                  opacity: deleteLoading ? 0.6 : 1
+                }}
+              >
+                {deleteLoading ? 'Excluindo...' : 'Sim, Excluir'}
+              </button>
+            </div>
+          </div>
         </Modal>
 
         {/* Chat Component */}

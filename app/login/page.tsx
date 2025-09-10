@@ -1,5 +1,6 @@
 "use client";
 import { useState, Suspense } from "react";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "../page.module.css";
@@ -9,11 +10,12 @@ function LoginForm() {
   const role = params.get("role");
   const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.type]: e.target.value });
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -86,7 +88,38 @@ function LoginForm() {
         </h2>
         <form style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 16 }} onSubmit={handleSubmit}>
           <input name="email" type="email" placeholder="E-mail" required style={{ padding: 12, borderRadius: 8, border: '1px solid #90caf9', fontSize: 16 }} value={form.email} onChange={handleChange} />
-          <input name="password" type="password" placeholder="Senha" required style={{ padding: 12, borderRadius: 8, border: '1px solid #90caf9', fontSize: 16 }} value={form.password} onChange={handleChange} />
+          <div style={{ position: 'relative', width: '100%' }}>
+            <input
+              name="password"
+              type={showPassword ? "text" : "password"}
+              placeholder="Senha"
+              required
+              style={{ padding: 12, borderRadius: 8, border: '1px solid #90caf9', fontSize: 16, width: '100%', paddingRight: 40 }}
+              value={form.password}
+              onChange={handleChange}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              tabIndex={-1}
+              style={{
+                position: 'absolute',
+                right: 10,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                margin: 0,
+                color: '#1976d2',
+                fontSize: 22
+              }}
+              aria-label={showPassword ? 'Esconder senha' : 'Mostrar senha'}
+            >
+              {showPassword ? <FiEyeOff /> : <FiEye />}
+            </button>
+          </div>
           <button type="submit" className={styles.primary} style={{ fontSize: 18, padding: '14px 0', borderRadius: 10, marginTop: 8 }} disabled={loading}>
             {loading ? "Entrando..." : "Entrar"}
           </button>
