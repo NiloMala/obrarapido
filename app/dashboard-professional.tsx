@@ -305,10 +305,12 @@ export default function DashboardProfessional() {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
     console.log('[DEBUG] Iniciando upload da foto:', file.name);
-    // Nome do arquivo: userId + extensão
     const ext = file.name.split('.').pop();
-    const filePath = `${userId}.${ext}`; // só o nome do arquivo
+    
+    // Usa formato simples que a política aceita: {userId}.{ext}
+    const filePath = `${userId}.${ext}`;
     console.log('[DEBUG] Caminho do arquivo:', filePath);
+    
     // Upload para o bucket 'avatars' do Supabase Storage
     const { data, error } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true });
     console.log('[DEBUG] Resultado do upload:', { data, error });
@@ -317,7 +319,10 @@ export default function DashboardProfessional() {
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
       console.log('[DEBUG] URL gerada:', urlData?.publicUrl);
       if (urlData?.publicUrl) {
-        setEditProfileForm((prev) => ({ ...prev, avatar_url: urlData.publicUrl }));
+        // Adiciona cache-busting query parameter para forçar atualização
+        const timestamp = Date.now();
+        const urlWithCache = `${urlData.publicUrl}?t=${timestamp}`;
+        setEditProfileForm((prev) => ({ ...prev, avatar_url: urlWithCache }));
       }
     } else {
       console.error('[DEBUG] Erro no upload:', error);

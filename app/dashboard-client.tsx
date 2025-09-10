@@ -379,14 +379,27 @@ export default function DashboardClient() {
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
+    console.log('DEBUG - Arquivo selecionado:', file.name, file.size);
     const ext = file.name.split('.').pop();
+    
+    // Usa formato simples que a política aceita: {userId}.{ext}
     const filePath = `${userId}.${ext}`;
+    console.log('DEBUG - Caminho do arquivo:', filePath);
+    
     const { data, error } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true });
+    console.log('DEBUG - Upload resultado:', { data, error });
     if (!error) {
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      console.log('DEBUG - URL pública gerada:', urlData?.publicUrl);
       if (urlData?.publicUrl) {
-        setEditProfileForm((prev) => ({ ...prev, avatar_url: urlData.publicUrl }));
+        // Adiciona cache-busting query parameter para forçar atualização
+        const timestamp = Date.now();
+        const urlWithCache = `${urlData.publicUrl}?t=${timestamp}`;
+        setEditProfileForm((prev) => ({ ...prev, avatar_url: urlWithCache }));
+        console.log('DEBUG - avatar_url atualizado no form:', urlWithCache);
       }
+    } else {
+      console.error('DEBUG - Erro no upload:', error);
     }
   };
   const handleEditProfileSubmit = async (e: React.FormEvent) => {
@@ -395,11 +408,17 @@ export default function DashboardClient() {
     setEditProfileError('');
     setEditProfileSuccess('');
     try {
+      console.log('DEBUG - UserId:', userId);
+      console.log('DEBUG - Form data:', editProfileForm);
+      console.log('DEBUG - avatar_url a ser salvo:', editProfileForm.avatar_url);
+      
       // Atualiza telefone e foto em user_profiles
-      const { error: err1 } = await supabase.from('user_profiles').update({
+      const { data, error: err1 } = await supabase.from('user_profiles').update({
         phone: editProfileForm.phone,
         avatar_url: editProfileForm.avatar_url,
       }).eq('id', userId);
+      
+      console.log('DEBUG - Update resultado:', { data, error: err1 });
       if (err1) {
         setEditProfileError('Erro ao atualizar perfil: ' + err1.message);
       } else {
@@ -509,7 +528,7 @@ export default function DashboardClient() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div>
               <h2 style={{ fontWeight: 700, fontSize: 20, color: '#1976d2', margin: 0, padding: 0 }}>
-                Dashboard Cliente
+                Painel do cliente
               </h2>
               <span style={{ color: '#555', fontSize: 15, fontWeight: 400, marginTop: 2, display: 'block' }}>Gerencie seus serviços solicitados</span>
             </div>

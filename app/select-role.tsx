@@ -20,7 +20,7 @@ export default function SelectRole() {
         alignItems: 'center',
         gap: 32
       }}>
-        <h1 style={{ fontWeight: 800, fontSize: 36, marginBottom: 8, color: '#1976d2', letterSpacing: -1 }}>Mãos-a-Obra</h1>
+        <h1 style={{ fontWeight: 800, fontSize: 36, marginBottom: 8, color: '#1976d2', letterSpacing: -1 }}>Obra Rápida</h1>
         <p style={{ fontSize: 18, color: '#444', marginBottom: 0, textAlign: 'center', lineHeight: 1.5 }}>
           Conecte clientes e profissionais autônomos da construção civil.
         </p>
