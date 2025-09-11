@@ -1048,10 +1048,13 @@ export default function DashboardClient() {
         </Modal>
 
         {/* Chat Component */}
-        {selectedQuote && (
+        {chatOpen && selectedQuote && (
           <Chat
             open={chatOpen}
-            onClose={() => setChatOpen(false)}
+            onClose={() => {
+              setChatOpen(false);
+              setSelectedQuote(null); // Limpar quote selecionado ao fechar
+            }}
             serviceRequestId={selectedQuote.service_request_id}
             clientId={userId}
             professionalId={selectedQuote.professional_id}

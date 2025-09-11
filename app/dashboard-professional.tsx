@@ -265,7 +265,17 @@ export default function DashboardProfessional() {
   const [editProfileError, setEditProfileError] = useState('');
   const [editProfileSuccess, setEditProfileSuccess] = useState('');
   // Estados do chat
-  const [chatOpen, setChatOpen] = useState(false);
+  // Estado do chat: null ou objeto com dados do chat
+  const [chatOpen, setChatOpen] = useState<null | {
+    open: boolean;
+    serviceRequestId: string;
+    clientId: string;
+    professionalId: string;
+    clientName: string;
+    professionalName: string;
+    currentUserId: string;
+    isClient: boolean;
+  }>(null);
 
   const openEditProfile = async () => {
     // Busca perfil atualizado do banco para garantir categorias corretas
@@ -585,7 +595,7 @@ export default function DashboardProfessional() {
         if (categories.length > 0) {
           const { data, error: reqError } = await supabase
             .from("service_requests")
-            .select("*")
+            .select("*, client:client_id(name, avatar_url)")
             .in("category", categories)
             .in("status", ["open", "quoted"])
             .order("created_at", { ascending: false });
@@ -1036,31 +1046,61 @@ export default function DashboardProfessional() {
                     </div>
                     <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
                       {sentQuotes[req.id] ? (
-                        <span style={{ background: '#e3f2fd', color: '#1976d2', border: '1px solid #90caf9', borderRadius: 8, padding: '8px 16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <FiCheckCircle /> Orçamento já enviado
-                        </span>
+                        <>
+                          <span style={{ background: '#e3f2fd', color: '#1976d2', border: '1px solid #90caf9', borderRadius: 8, padding: '8px 16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <FiCheckCircle /> Orçamento já enviado
+                          </span>
+                          {/* Botão de detalhes removido aqui para evitar duplicidade, já existe abaixo para ambos os casos */}
+                          <button
+                            type="button"
+                            style={{ background: '#fff', border: '1px solid #1976d2', color: '#1976d2', borderRadius: 8, padding: '8px 16px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                            title="Abrir chat com o cliente"
+                            onClick={() => {
+                              setChatOpen({
+                                open: true,
+                                serviceRequestId: req.id,
+                                clientId: req.client_id,
+                                professionalId: userId,
+                                clientName: req.client?.name || '',
+                                professionalName: profile?.name || '',
+                                currentUserId: userId,
+                                isClient: false
+                              });
+                            }}
+                          >
+                            <FiMessageSquare style={{ marginRight: 4 }} /> Chat
+                          </button>
+                        </>
                       ) : (
-                        <button
-                          style={{ 
-                            background: planLimits.canSendQuote ? '#1976d2' : '#ccc', 
-                            border: 'none', 
-                            color: '#fff', 
-                            borderRadius: 8, 
-                            padding: '8px 16px', 
-                            fontWeight: 600, 
-                            cursor: planLimits.canSendQuote ? 'pointer' : 'not-allowed', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 6 
-                          }}
-                          onClick={() => planLimits.canSendQuote && openQuoteModal(req)}
-                          disabled={!planLimits.canSendQuote}
-                          title={!planLimits.canSendQuote ? 
-                            (!subscription ? 'Assine um plano para enviar orçamentos' : 
-                            `Limite diário atingido (${planLimits.quotesUsed}/${planLimits.dailyLimit})`) : ''}
-                        >
-                          <FiCheckCircle /> Enviar Orçamento
-                        </button>
+                        <>
+                          <button
+                            style={{ 
+                              background: planLimits.canSendQuote ? '#1976d2' : '#ccc', 
+                              border: 'none', 
+                              color: '#fff', 
+                              borderRadius: 8, 
+                              padding: '8px 16px', 
+                              fontWeight: 600, 
+                              cursor: planLimits.canSendQuote ? 'pointer' : 'not-allowed', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: 6 
+                            }}
+                            onClick={() => planLimits.canSendQuote && openQuoteModal(req)}
+                            disabled={!planLimits.canSendQuote}
+                            title={!planLimits.canSendQuote ? 
+                              (!subscription ? 'Assine um plano para enviar orçamentos' : 
+                              `Limite diário atingido (${planLimits.quotesUsed}/${planLimits.dailyLimit})`) : ''}
+                          >
+                            <FiCheckCircle /> Enviar Orçamento
+                          </button>
+                          <button
+                            style={{ background: '#fff', border: '1px solid #1976d2', color: '#1976d2', borderRadius: 8, padding: '8px 16px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                            onClick={() => openDetailsModal(req)}
+                          >
+                            <FiFileText style={{ marginRight: 4 }} /> Ver Detalhes
+                          </button>
+                        </>
                       )}
                       {/* Modal de envio de orçamento */}
                       <Modal open={showQuoteModal} onClose={closeQuoteModal}>
@@ -1116,12 +1156,6 @@ export default function DashboardProfessional() {
                           {quoteSuccess && <div style={{ color: 'green', marginTop: 6 }}>{quoteSuccess}</div>}
                         </form>
                       </Modal>
-                      <button
-                        style={{ background: '#fff', border: '1px solid #1976d2', color: '#1976d2', borderRadius: 8, padding: '8px 16px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-                        onClick={() => openDetailsModal(req)}
-                      >
-                        <FiFileText /> Ver Detalhes
-                      </button>
                       {/* Modal de detalhes do pedido */}
                       <Modal open={showDetailsModal && detailsRequest?.id === req.id} onClose={closeDetailsModal}>
                         {detailsRequest && (
@@ -1206,8 +1240,16 @@ export default function DashboardProfessional() {
                       <button
                         style={{ background: '#fff', color: '#1976d2', border: '1px solid #1976d2', borderRadius: 8, padding: '8px 16px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                         onClick={() => {
-                          setSelectedService(service);
-                          setChatOpen(true);
+                          setChatOpen({
+                            open: true,
+                            serviceRequestId: service.id,
+                            clientId: service.client_id,
+                            professionalId: userId,
+                            clientName: service.client?.name || '',
+                            professionalName: profile?.name || '',
+                            currentUserId: userId,
+                            isClient: false
+                          });
                         }}
                       >
                         <FiMessageSquare /> Chat com Cliente
@@ -1380,20 +1422,34 @@ export default function DashboardProfessional() {
         )}
 
         {/* Chat Component */}
-        {selectedService && (
+        {chatOpen && chatOpen.open && (
           <Chat
-            open={chatOpen}
-            onClose={() => setChatOpen(false)}
-            serviceRequestId={selectedService.id}
-            clientId={selectedService.client_id}
-            professionalId={userId}
-            clientName={selectedService.client?.name || 'Cliente'}
-            professionalName={profile?.name || 'Profissional'}
-            currentUserId={userId}
-            isClient={false}
+            open={chatOpen.open}
+            onClose={() => setChatOpen(null)}
+            serviceRequestId={chatOpen.serviceRequestId}
+            clientId={chatOpen.clientId}
+            professionalId={chatOpen.professionalId}
+            clientName={chatOpen.clientName}
+            professionalName={chatOpen.professionalName}
+            currentUserId={chatOpen.currentUserId}
+            isClient={chatOpen.isClient}
           />
         )}
-      </main>
-    </div>
+      {/* Modal do Chat - deve ficar fora do map/render condicional para evitar erro de parsing */}
+      {chatOpen && chatOpen.open && (
+        <Chat
+          open={chatOpen.open}
+          onClose={() => setChatOpen(null)}
+          serviceRequestId={chatOpen.serviceRequestId}
+          clientId={chatOpen.clientId}
+          professionalId={chatOpen.professionalId}
+          clientName={chatOpen.clientName}
+          professionalName={chatOpen.professionalName}
+          currentUserId={chatOpen.currentUserId}
+          isClient={chatOpen.isClient}
+        />
+      )}
+    </main>
+  </div>
   );
 }

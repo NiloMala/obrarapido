@@ -22,6 +22,8 @@ interface Message {
   receiver_id: string;
   message: string;
   created_at: string;
+  read_at?: string | null;
+  is_read?: boolean;
 }
 
 export default function Chat({ 
@@ -39,11 +41,47 @@ export default function Chat({
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [phoneWarning, setPhoneWarning] = useState("");
+  // Estados para indicador de digitação
+  const [isTyping, setIsTyping] = useState(false);
+  const [otherUserTyping, setOtherUserTyping] = useState(false);
+  const [lastSeen, setLastSeen] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingChannelRef = useRef<any>(null);
 
   // Scroll para a última mensagem
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Função para notificar que está digitando
+  const notifyTyping = () => {
+    if (typingChannelRef.current) {
+      typingChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: {
+          user_id: currentUserId,
+          service_request_id: serviceRequestId,
+          typing: true
+        }
+      });
+    }
+  };
+
+  // Função para notificar que parou de digitar
+  const notifyStoppedTyping = () => {
+    if (typingChannelRef.current) {
+      typingChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: {
+          user_id: currentUserId,
+          service_request_id: serviceRequestId,
+          typing: false
+        }
+      });
+    }
   };
 
   // Função para detectar números de telefone
@@ -77,16 +115,144 @@ export default function Chat({
     try {
       const { data, error } = await supabase
         .from('messages')
-        .select('*')
+        .select(`
+          id,
+          sender_id,
+          receiver_id,
+          message,
+          created_at,
+          service_request_id,
+          read_at,
+          is_read
+        `)
         .eq('service_request_id', serviceRequestId)
         .order('created_at', { ascending: true });
       
       if (!error && data) {
-        setMessages(data);
+        // Garantir que todas as mensagens tenham os campos de leitura
+        const messagesWithReadStatus = data.map(msg => ({
+          ...msg,
+          is_read: msg.is_read === true, // Garantir boolean
+          read_at: msg.read_at || null
+        }));
+        
+        setMessages(messagesWithReadStatus);
         setTimeout(scrollToBottom, 100);
+        
+        // Marcar mensagens recebidas como lidas (apenas mensagens que EU recebi)
+        const hasUnreadReceivedMessages = messagesWithReadStatus.some(msg => 
+          msg.receiver_id === currentUserId && !msg.is_read
+        );
+        
+        if (hasUnreadReceivedMessages) {
+          await markMessagesAsRead();
+        }
       }
     } catch (err) {
       console.error('Erro ao buscar mensagens:', err);
+    }
+  };
+
+  // Indicador de digitação
+  const handleTyping = () => {
+    // Notificar que está digitando
+    notifyTyping();
+    
+    // Limpar timeout anterior
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    
+    // Definir novo timeout para parar de digitar após 1 segundo de inatividade
+    typingTimeoutRef.current = setTimeout(() => {
+      notifyStoppedTyping();
+    }, 1000);
+  };
+
+  // Função para formatar timestamp de forma mais amigável
+  const formatMessageTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    
+    if (diffInHours < 24) {
+      return date.toLocaleTimeString('pt-BR', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    } else if (diffInHours < 48) {
+      return `Ontem ${date.toLocaleTimeString('pt-BR', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      })}`;
+    } else {
+      return date.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+  };
+
+  // Marcar mensagens como lidas
+  const markMessagesAsRead = async () => {
+    try {
+      // Verificar se temos os dados necessários
+      if (!serviceRequestId || !currentUserId) {
+        console.debug('Dados incompletos para marcar mensagens como lidas:', {
+          serviceRequestId,
+          currentUserId
+        });
+        return;
+      }
+
+      console.debug('Marcando mensagens como lidas:', {
+        serviceRequestId,
+        currentUserId,
+        serviceRequestIdType: typeof serviceRequestId,
+        currentUserIdType: typeof currentUserId
+      });
+
+      const { data, error } = await supabase.rpc('mark_messages_as_read', {
+        p_service_request_id: serviceRequestId,
+        p_user_id: currentUserId
+      });
+      
+      if (error) {
+        // Se a função não existir, apenas log em debug (não é erro crítico)
+        if (error.message?.includes('function') && error.message?.includes('does not exist')) {
+          console.debug('Função mark_messages_as_read ainda não foi criada no banco de dados');
+          return;
+        }
+        console.error('Erro ao marcar mensagens como lidas:', {
+          error,
+          data,
+          serviceRequestId,
+          currentUserId,
+          errorMessage: error.message,
+          errorDetails: error.details,
+          errorHint: error.hint,
+          errorCode: error.code,
+          fullError: JSON.stringify(error, null, 2)
+        });
+      } else {
+        console.debug('Mensagens marcadas como lidas com sucesso');
+        // Recarregar mensagens para atualizar o status
+        setTimeout(fetchMessages, 500);
+      }
+    } catch (err: any) {
+      // Se a função não existir, apenas log em debug
+      if (err?.message?.includes('function') && err?.message?.includes('does not exist')) {
+        console.debug('Função mark_messages_as_read ainda não foi criada no banco de dados');
+        return;
+      }
+      console.error('Erro ao marcar mensagens como lidas (catch):', {
+        err,
+        serviceRequestId,
+        currentUserId,
+        message: err?.message
+      });
     }
   };
 
@@ -116,6 +282,8 @@ export default function Chat({
 
       if (!error) {
         setNewMessage("");
+        setPhoneWarning(""); // Limpar aviso de telefone
+        notifyStoppedTyping(); // Parar indicador de digitação
         fetchMessages(); // Recarregar mensagens
       }
     } catch (err) {
@@ -130,8 +298,8 @@ export default function Chat({
 
     fetchMessages();
 
-    // Subscription para novas mensagens
-    const subscription = supabase
+    // Canal principal para mensagens
+    const messageSubscription = supabase
       .channel(`chat-${serviceRequestId}`)
       .on(
         'postgres_changes',
@@ -142,18 +310,105 @@ export default function Chat({
           filter: `service_request_id=eq.${serviceRequestId}`
         },
         (payload: any) => {
-          setMessages(prev => [...prev, payload.new as Message]);
+          console.debug('Nova mensagem recebida:', payload.new);
+          const newMessage = {
+            ...payload.new,
+            is_read: payload.new.is_read === true, // Garantir boolean
+            read_at: payload.new.read_at || null
+          };
+          
+          setMessages(prev => [...prev, newMessage]);
           setTimeout(scrollToBottom, 100);
+          
+          // Se a nova mensagem foi enviada para mim, marcar como lida automaticamente
+          if (payload.new.receiver_id === currentUserId) {
+            setTimeout(markMessagesAsRead, 500);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `service_request_id=eq.${serviceRequestId}`
+        },
+        (payload: any) => {
+          console.debug('Mensagem atualizada:', payload.new);
+          // Atualizar status de leitura em tempo real
+          const updatedMessage = {
+            ...payload.new,
+            is_read: payload.new.is_read === true, // Garantir boolean
+            read_at: payload.new.read_at || null
+          };
+          
+          setMessages(prev => 
+            prev.map(msg => 
+              msg.id === payload.new.id ? updatedMessage : msg
+            )
+          );
         }
       )
       .subscribe();
 
+    // Canal separado para indicador de digitação
+    const typingSubscription = supabase
+      .channel(`typing-${serviceRequestId}`)
+      .on('broadcast', { event: 'typing' }, (payload: any) => {
+        // Só mostrar indicador se não for eu digitando
+        if (payload.payload.user_id !== currentUserId) {
+          setOtherUserTyping(payload.payload.typing);
+          
+          // Auto-remover o indicador após 3 segundos
+          if (payload.payload.typing) {
+            setTimeout(() => {
+              setOtherUserTyping(false);
+            }, 3000);
+          }
+        }
+      })
+      .subscribe();
+
+    // Armazenar referência do canal de digitação
+    typingChannelRef.current = typingSubscription;
+
     return () => {
-      subscription.unsubscribe();
+      messageSubscription.unsubscribe();
+      typingSubscription.unsubscribe();
+      notifyStoppedTyping(); // Notificar que parou de digitar ao fechar
     };
   }, [open, serviceRequestId]);
 
-  if (!open) return null;
+  // Cleanup quando o componente for desmontado
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      notifyStoppedTyping();
+    };
+  }, []);
+  useEffect(() => {
+    if (open && messages.length > 0) {
+      // Verificar se há mensagens não lidas que eu recebi
+      const hasUnreadReceivedMessages = messages.some(msg => 
+        msg.receiver_id === currentUserId && msg.is_read !== true
+      );
+      
+      console.debug('Verificando mensagens não lidas:', {
+        hasUnreadReceivedMessages,
+        currentUserId,
+        messagesCount: messages.length,
+        unreadMessages: messages.filter(msg => msg.receiver_id === currentUserId && msg.is_read !== true)
+      });
+      
+      if (hasUnreadReceivedMessages) {
+        // Aguardar um pouco antes de marcar como lidas para simular visualização
+        setTimeout(markMessagesAsRead, 1000);
+      }
+    }
+  }, [open, messages, currentUserId]);
 
   return (
     <div style={{ 
@@ -186,24 +441,47 @@ export default function Chat({
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'space-between',
-          background: '#1976d2',
+          background: 'linear-gradient(135deg, #1976d2, #1565c0)',
           color: '#fff',
           borderRadius: '16px 16px 0 0'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FiMessageSquare />
-            <span style={{ fontWeight: 600 }}>
-              Chat com {isClient ? professionalName : clientName}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <FiMessageSquare size={20} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 16 }}>
+                {isClient ? (professionalName || 'Profissional') : (clientName || 'Cliente')}
+              </div>
+              {lastSeen && (
+                <div style={{ fontSize: 12, opacity: 0.8 }}>
+                  visto por último {lastSeen}
+                </div>
+              )}
+            </div>
           </div>
           <button
             onClick={onClose}
             style={{ 
-              background: 'none', 
+              background: 'rgba(255,255,255,0.1)', 
               border: 'none', 
               color: '#fff', 
-              fontSize: 20, 
-              cursor: 'pointer' 
+              fontSize: 18, 
+              cursor: 'pointer',
+              borderRadius: '50%',
+              width: 36,
+              height: 36,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
           >
             <FiX />
@@ -242,41 +520,107 @@ export default function Chat({
               Nenhuma mensagem ainda. Comece a conversa!
             </div>
           ) : (
-            messages.map((message) => {
-              const isMyMessage = message.sender_id === currentUserId;
-              return (
-                <div
-                  key={message.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: isMyMessage ? 'flex-end' : 'flex-start'
-                  }}
-                >
+            <>
+              {messages.map((message) => {
+                const isMyMessage = message.sender_id === currentUserId;
+                return (
                   <div
+                    key={message.id}
                     style={{
-                      background: isMyMessage ? '#1976d2' : '#f5f5f5',
-                      color: isMyMessage ? '#fff' : '#333',
-                      borderRadius: 12,
-                      padding: '8px 12px',
-                      maxWidth: '70%',
-                      wordBreak: 'break-word'
+                      display: 'flex',
+                      justifyContent: isMyMessage ? 'flex-end' : 'flex-start',
+                      marginBottom: 8
                     }}
                   >
-                    <div style={{ fontSize: 14 }}>{message.message}</div>
-                    <div style={{ 
-                      fontSize: 11, 
-                      opacity: 0.7, 
-                      marginTop: 4 
+                    <div
+                      style={{
+                        background: isMyMessage ? '#1976d2' : '#f5f5f5',
+                        color: isMyMessage ? '#fff' : '#333',
+                        borderRadius: isMyMessage ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                        padding: '10px 14px',
+                        maxWidth: '70%',
+                        wordBreak: 'break-word',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                        position: 'relative'
+                      }}
+                    >
+                      <div style={{ fontSize: 14, lineHeight: 1.4 }}>{message.message}</div>
+                      <div style={{ 
+                        fontSize: 11, 
+                        opacity: 0.7, 
+                        marginTop: 4,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: isMyMessage ? 'flex-end' : 'flex-start',
+                        gap: 4
+                      }}>
+                        <span>
+                          {formatMessageTime(message.created_at)}
+                        </span>
+                        {isMyMessage && (
+                          <span style={{ fontSize: 12 }}>
+                            {/* Mostrar indicador de leitura baseado no status da mensagem */}
+                            {message.is_read === true ? (
+                              <span style={{ color: '#4fc3f7' }} title="Visualizada">✓✓</span>
+                            ) : (
+                              <span style={{ color: isMyMessage ? 'rgba(255,255,255,0.7)' : '#999' }} title="Enviada">✓</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {/* Indicador de digitação */}
+              {otherUserTyping && (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'flex-start',
+                  marginBottom: 8
+                }}>
+                  <div style={{
+                    background: '#f5f5f5',
+                    borderRadius: '18px 18px 18px 4px',
+                    padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}>
+                    <span style={{ fontSize: 12, color: '#666' }}>
+                      {isClient ? professionalName : clientName} está digitando
+                    </span>
+                    <div style={{
+                      display: 'flex',
+                      gap: 2
                     }}>
-                      {new Date(message.created_at).toLocaleTimeString('pt-BR', { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}
+                      <div style={{
+                        width: 4,
+                        height: 4,
+                        borderRadius: '50%',
+                        background: '#666',
+                        animation: 'pulse 1.5s infinite'
+                      }} />
+                      <div style={{
+                        width: 4,
+                        height: 4,
+                        borderRadius: '50%',
+                        background: '#666',
+                        animation: 'pulse 1.5s infinite 0.3s'
+                      }} />
+                      <div style={{
+                        width: 4,
+                        height: 4,
+                        borderRadius: '50%',
+                        background: '#666',
+                        animation: 'pulse 1.5s infinite 0.6s'
+                      }} />
                     </div>
                   </div>
                 </div>
-              );
-            })
+              )}
+            </>
           )}
           <div ref={messagesEndRef} />
         </div>
@@ -312,6 +656,9 @@ export default function Chat({
               const value = e.target.value;
               setNewMessage(value);
               
+              // Simular indicador de digitação
+              handleTyping();
+              
               // Verificar em tempo real se há números de telefone
               if (value.trim() && detectPhoneNumber(value)) {
                 setPhoneWarning("⚠️ Atenção: Não é permitido compartilhar telefone no chat");
@@ -322,13 +669,20 @@ export default function Chat({
             placeholder="Digite sua mensagem..."
             style={{
               flex: 1,
-              padding: '8px 12px',
-              borderRadius: 20,
+              padding: '12px 16px',
+              borderRadius: 25,
               border: '1px solid #ddd',
               fontSize: 14,
-              outline: 'none'
+              outline: 'none',
+              background: '#f8f9fa'
             }}
             disabled={loading}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage(e as any);
+              }
+            }}
           />
           <button
             type="submit"

@@ -1,3 +1,43 @@
+-- Verificar as mensagens existentes com os campos de leitura
+SELECT 
+    id,
+    sender_id,
+    receiver_id,
+    message,
+    created_at,
+    read_at,
+    is_read,
+    service_request_id
+FROM messages 
+ORDER BY created_at DESC 
+LIMIT 10;
+
+-- Verificar se há mensagens sem os campos de leitura
+SELECT 
+    COUNT(*) as total_messages,
+    COUNT(is_read) as messages_with_is_read,
+    COUNT(read_at) as messages_with_read_at
+FROM messages;
+
+-- Atualizar mensagens antigas que não têm os campos de leitura
+UPDATE messages 
+SET is_read = false 
+WHERE is_read IS NULL;
+
+-- Verificar novamente
+SELECT 
+    id,
+    sender_id,
+    receiver_id,
+    message,
+    created_at,
+    read_at,
+    is_read,
+    service_request_id
+FROM messages 
+ORDER BY created_at DESC 
+LIMIT 5;
+
 -- Habilitar RLS (Row Level Security) na tabela messages se ainda não estiver habilitado
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 
